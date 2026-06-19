@@ -1,0 +1,50 @@
+Phases of the SDLC
+
+The SDLC typically includes six discrete phases: planning, design, development, testing, deployment, and maintenance.
+Originally a linear waterfall model, the SDLC now often incorporates iteration to accommodate changing requirements.
+Planning Phase
+
+Requirements are gathered, analyzed, documented in a Software Requirements Specification (SRS), and prioritized.
+Factors considered include users, purpose, data inputs/outputs, compliance, risks, quality, resources, and scheduling; prototypes may be created to clarify requirements.
+Design Phase
+
+The software architecture is developed based on the SRS, involving collaboration and review by stakeholders.
+A design document is created to guide the development phase; prototypes may also be designed for demonstration.
+Development and Testing Phases
+
+Development involves coding according to the design document, using programming tools, languages, and standards.
+Testing ensures code stability, security, and requirement compliance through manual, automated, or hybrid methods; bugs are fixed and retested.
+Deployment and Maintenance Phases
+
+Deployment releases the software to production or user acceptance testing environments, sometimes in stages.
+Maintenance addresses bugs, user interface issues, and new requirements, feeding back into future development cycles if needed.
+
+
+Software Development Methodology:
+
+Waterfall is a sequential process where each phase’s output is the next phase’s input; planning is done upfront, and the customer sees the product late in the cycle.
+The V-shape model is also sequential, shaped like a "V," with verification phases on the left and corresponding validation phases on the right; test plans are designed early and executed later.
+Both models are easy to understand and implement but lack flexibility to accommodate changing requirements once development progresses.
+
+
+The essential aspects of software documentation, its formats, types, and purposes within software engineering.
+
+Documentation Formats and Categories
+
+Software documentation is crucial throughout all phases of the Software Development Life Cycle (SDLC).
+Documentation is divided into product documentation, which describes software functionality, and process documentation, which explains how to complete tasks.
+Types of Product Documentation
+
+Requirements documentation outlines expected features and is created during the planning phase for developers, architects, and QA teams.
+Design documentation details how the software will be built, including conceptual and technical designs.
+Technical documentation includes code comments and working papers to help developers understand the code.
+Quality assurance documentation covers testing strategies, plans, cases, and traceability matrices linking tests to requirements.
+User documentation helps end-users operate, install, or troubleshoot the software, including manuals, FAQs, and tutorials.
+Standard Operating Procedures (SOPs) and Maintenance
+
+SOPs provide detailed, step-by-step instructions for organization-specific processes, often accompanying process documentation.
+Documentation must be kept up to date, especially during the maintenance phase of the SDLC, to reflect changes such as user interface updates.
+
+
+
+
