@@ -291,7 +291,7 @@ def page_recommendations(similarity_df, product_list):
         st.session_state.search_history = []
     if "current_recommendations" not in st.session_state:
         st.session_state.current_recommendations = _get_dynamic_suggestions(
-            [], similarity_df, product_list, n=5
+            [], similarity_df, product_list, n=6
         )
     if "placeholder_index" not in st.session_state:
         st.session_state.placeholder_index = 0
@@ -341,7 +341,7 @@ def page_recommendations(similarity_df, product_list):
         with exp_col:
             if st.button("🔄 Refresh Suggestions", key="refresh_recs"):
                 st.session_state.current_recommendations = _get_dynamic_suggestions(
-                    st.session_state.search_history, similarity_df, product_list, n=5
+                    st.session_state.search_history, similarity_df, product_list, n=6
                 )
                 st.session_state.placeholder_index = 0
                 st.rerun()
@@ -365,7 +365,7 @@ def page_recommendations(similarity_df, product_list):
             if matched_name not in st.session_state.search_history:
                 st.session_state.search_history.append(matched_name)
                 st.session_state.current_recommendations = _get_dynamic_suggestions(
-                    st.session_state.search_history, similarity_df, product_list, n=5
+                    st.session_state.search_history, similarity_df, product_list, n=6
                 )
                 st.session_state.placeholder_index = 0
 
@@ -631,6 +631,15 @@ def render_sidebar():
             <p style="font-size: 0.75rem; color: #718096; margin: 0;">
                 Customer Intelligence Platform
             </p>
+        </div>
+        <div style="text-align:center; padding: 0.4rem 0 0.75rem;">
+            <p style="font-size: 0.78rem; color: #a8b2d8; margin: 0 0 0.3rem;">
+                ✦ Aghason Emmanuel
+            </p>
+            <a href="https://github.com/Github-Emmi" target="_blank"
+               style="font-size: 0.72rem; color: #6366F1; text-decoration: none;">
+                🐙 github.com/Github-Emmi
+            </a>
         </div>
         <hr style="border-color: #2d3748; margin: 0 0 1rem;">
         """, unsafe_allow_html=True)
