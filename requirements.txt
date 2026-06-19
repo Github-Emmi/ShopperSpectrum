@@ -18,6 +18,7 @@ scipy>=1.9.0
 
 # Web Application
 streamlit>=1.25.0
+streamlit-autorefresh>=0.1.0
 
 # Kaggle API (for production model download on Render)
 kaggle>=1.5.0

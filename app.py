@@ -17,6 +17,8 @@ import difflib
 import warnings
 import zipfile
 
+import random
+
 import numpy as np
 import streamlit as st
 
@@ -240,9 +242,75 @@ def get_recommendations(product_name: str, similarity_df, product_list: list, n:
     return recs, matched_name
 
 
+# ─── DYNAMIC SUGGESTION HELPER ────────────────────────────────────────────────
+def _get_dynamic_suggestions(
+    search_history: list, similarity_df, product_list: list, n: int = 5
+) -> list:
+    """
+    Derive n product suggestions for the placeholder ticker and
+    'Recommended for you' panel.
+    - Cold start (empty history): random sample from product_list.
+    - With history: top similar products to the last searched item,
+      padded with random items when similarity results are sparse.
+    """
+    if not search_history:
+        return random.sample(product_list, min(n, len(product_list)))
+
+    last_item = search_history[-1]
+    if similarity_df is None or last_item not in similarity_df.index:
+        return random.sample(product_list, min(n, len(product_list)))
+
+    history_set = set(search_history)
+    candidates = (
+        similarity_df[last_item]
+        .drop([p for p in search_history if p in similarity_df.index], errors="ignore")
+        .sort_values(ascending=False)
+        .head(n)
+        .index.tolist()
+    )
+
+    # Pad to n with randoms if similarity results are sparse
+    if len(candidates) < n:
+        remaining = [
+            p for p in product_list
+            if p not in set(candidates) and p not in history_set
+        ]
+        if remaining:
+            pad = random.sample(remaining, min(n - len(candidates), len(remaining)))
+            candidates.extend(pad)
+
+    return candidates[:n]
+
+
 # ─── PAGE 1: PRODUCT RECOMMENDATIONS ──────────────────────────────────────────
 def page_recommendations(similarity_df, product_list):
     """Product Recommendation Module — Item-Based Collaborative Filtering."""
+
+    # ── 1. Session State Initialisation ──────────────────────────────────────
+    if "search_history" not in st.session_state:
+        st.session_state.search_history = []
+    if "current_recommendations" not in st.session_state:
+        st.session_state.current_recommendations = _get_dynamic_suggestions(
+            [], similarity_df, product_list, n=5
+        )
+    if "placeholder_index" not in st.session_state:
+        st.session_state.placeholder_index = 0
+
+    # ── 2. Ticker — auto-refresh every 2 s (cycles placeholder only) ─────────
+    try:
+        from streamlit_autorefresh import st_autorefresh
+        tick = st_autorefresh(interval=2000, limit=None, key="placeholder_ticker")
+        n_recs = max(1, len(st.session_state.current_recommendations))
+        st.session_state.placeholder_index = tick % n_recs
+    except ImportError:
+        tick = 0  # graceful fallback — placeholder stays static
+
+    # ── 3. Resolve current dynamic placeholder text ───────────────────────────
+    _recs = st.session_state.current_recommendations
+    _idx  = st.session_state.placeholder_index
+    dynamic_placeholder = (
+        f"e.g. {_recs[_idx]}" if _recs else "e.g. WHITE HANGING HEART T-LIGHT HOLDER"
+    )
 
     st.markdown('<p class="section-header">🎯 Product Recommendation Engine</p>', unsafe_allow_html=True)
 
@@ -254,34 +322,35 @@ def page_recommendations(similarity_df, product_list):
     </div>
     """, unsafe_allow_html=True)
 
-    # Input area
+    # ── 4. Input area with dynamic placeholder ────────────────────────────────
     col1, col2 = st.columns([3, 1])
     with col1:
         product_input = st.text_input(
             "🔍 Enter a Product Name",
-            placeholder="e.g. WHITE HANGING HEART T-LIGHT HOLDER",
-            help="Type any product name. The system will find the closest match automatically."
+            placeholder=dynamic_placeholder,
+            help="Type any product name. The system will find the closest match automatically.",
+            key="product_search_input",
         )
     with col2:
         st.markdown("<br>", unsafe_allow_html=True)
         get_btn = st.button("Get Recommendations", type="primary", use_container_width=True)
 
-    # Example products
-    with st.expander("💡 Example product names to try"):
-        examples = [
-            "WHITE HANGING HEART T-LIGHT HOLDER",
-            "ALARM CLOCK BAKELIKE RED",
-            "JUMBO BAG RED RETROSPOT",
-            "HAND WARMER UNION JACK",
-            "JAM MAKING SET WITH JARS",
-            "RETROSPOT TEA SET CERAMIC 11 PC",
-        ]
+    # ── 5. "Recommended for you" expander ─────────────────────────────────────
+    with st.expander("💡 Recommended for you"):
+        exp_col, _ = st.columns([1, 4])
+        with exp_col:
+            if st.button("🔄 Refresh Suggestions", key="refresh_recs"):
+                st.session_state.current_recommendations = _get_dynamic_suggestions(
+                    st.session_state.search_history, similarity_df, product_list, n=5
+                )
+                st.session_state.placeholder_index = 0
+                st.rerun()
         col_ex = st.columns(3)
-        for i, ex in enumerate(examples):
+        for i, item in enumerate(st.session_state.current_recommendations):
             with col_ex[i % 3]:
-                st.code(ex, language=None)
+                st.code(item, language=None)
 
-    # Process recommendation request
+    # ── 6. Process recommendation request ─────────────────────────────────────
     if get_btn and product_input.strip():
         with st.spinner("Finding similar products..."):
             recs, matched_name = get_recommendations(product_input, similarity_df, product_list)
@@ -289,9 +358,17 @@ def page_recommendations(similarity_df, product_list):
         if not recs:
             st.warning(
                 f"⚠️ No match found for **\"{product_input}\"**. "
-                "Try a different product name or check the examples above."
+                "Try a different product name or check the suggestions above."
             )
         else:
+            # Update search history and evolve recommendations on new successful search
+            if matched_name not in st.session_state.search_history:
+                st.session_state.search_history.append(matched_name)
+                st.session_state.current_recommendations = _get_dynamic_suggestions(
+                    st.session_state.search_history, similarity_df, product_list, n=5
+                )
+                st.session_state.placeholder_index = 0
+
             # Show matched name if different from input
             if matched_name.upper() != product_input.strip().upper():
                 st.info(f"🔄 Matched to: **{matched_name}**")
