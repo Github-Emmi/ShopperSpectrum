@@ -15,6 +15,7 @@ import os
 import pickle
 import difflib
 import warnings
+import zipfile
 
 import numpy as np
 import streamlit as st
@@ -51,7 +52,7 @@ st.markdown("""
     .section-header {
         font-size: 1.4rem;
         font-weight: 700;
-        color: #1a1a2e;
+        color: #a8b2d8;
         border-left: 5px solid #E94560;
         padding-left: 0.8rem;
         margin-bottom: 1rem;
@@ -106,12 +107,59 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+# ─── KAGGLE MODEL DOWNLOAD ────────────────────────────────────────────────────
+def _download_from_kaggle(models_dir: str) -> None:
+    """
+    Download trained model artifacts from the Kaggle dataset
+    'aghasonemmanuel/shopper-spectrum-models' into models_dir.
+
+    Supports two auth modes (set as Render environment variables):
+      - New (CLI 2.x):  KAGGLE_API_TOKEN=KGAT_xxxx
+      - Legacy:         KAGGLE_USERNAME + KAGGLE_KEY
+    """
+    try:
+        import kaggle  # kaggle package must be in requirements.txt
+
+        # Support new KAGGLE_API_TOKEN format (Kaggle CLI 2.x)
+        api_token = os.environ.get("KAGGLE_API_TOKEN")
+        if api_token:
+            os.environ["KAGGLE_API_TOKEN"] = api_token  # ensure it's set for the lib
+        else:
+            # Fall back to legacy username/key — both must be present
+            username = os.environ.get("KAGGLE_USERNAME")
+            key = os.environ.get("KAGGLE_KEY")
+            if not username or not key:
+                raise RuntimeError(
+                    "Set either KAGGLE_API_TOKEN or both KAGGLE_USERNAME + KAGGLE_KEY "
+                    "in your Render environment settings."
+                )
+
+        kaggle.api.authenticate()
+        kaggle.api.dataset_download_files(
+            "aghasonemmanuel/shopper-spectrum-models",
+            path=models_dir,
+            unzip=True,
+            quiet=False,
+        )
+    except ImportError:
+        raise RuntimeError(
+            "The 'kaggle' package is not installed. Add kaggle>=1.5.0 to requirements.txt."
+        )
+    except Exception as exc:
+        raise RuntimeError(f"Kaggle download failed: {exc}") from exc
+
+
 # ─── MODEL LOADING (CACHED) ────────────────────────────────────────────────────
 @st.cache_resource(show_spinner="Loading models...")
 def load_models():
     """
     Load all trained ML artifacts from the models/ directory.
     Cached with @st.cache_resource — loaded once per session.
+
+    In production (Render): if model files are absent, automatically
+    downloads them from the Kaggle dataset using KAGGLE_USERNAME /
+    KAGGLE_KEY environment variables, then loads from disk.
+
     Returns: (kmeans, scaler, label_map, similarity_df, product_list)
     """
     models_dir = "models"
@@ -119,6 +167,18 @@ def load_models():
                 "similarity_df.pkl", "product_list.pkl"]
 
     missing = [f for f in required if not os.path.exists(os.path.join(models_dir, f))]
+
+    if missing:
+        # Production path — try Kaggle download if credentials are available
+        has_new_token = bool(os.environ.get("KAGGLE_API_TOKEN"))
+        has_legacy = bool(os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY"))
+        if has_new_token or has_legacy:
+            os.makedirs(models_dir, exist_ok=True)
+            _download_from_kaggle(models_dir)
+            # Re-check after download
+            missing = [f for f in required
+                       if not os.path.exists(os.path.join(models_dir, f))]
+
     if missing:
         return None, None, None, None, None
 
@@ -142,11 +202,13 @@ def models_missing_banner():
         <h3 style="color:#856404; margin:0">⚠️ Model Files Not Found</h3>
         <p style="color:#533f03; margin:0.5rem 0 0">
         The trained model artifacts are missing from the <code>models/</code> directory.<br><br>
-        <strong>To fix this:</strong><br>
+        <strong>Local development — generate models locally:</strong><br>
         1. Open <code>shopper_spectrum.ipynb</code> in Jupyter or VS Code<br>
-        2. Select <strong>Kernel → Restart & Run All</strong><br>
-        3. Wait for all cells to finish (~2–5 minutes)<br>
-        4. Refresh this page
+        2. Select <strong>Kernel → Restart &amp; Run All</strong><br>
+        3. Wait for all cells to finish (~2–5 minutes), then refresh this page.<br><br>
+        <strong>Production (Render) — models download automatically:</strong><br>
+        Ensure <code>KAGGLE_USERNAME</code> and <code>KAGGLE_KEY</code> are set
+        in your Render environment variables, then redeploy.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -185,7 +247,7 @@ def page_recommendations(similarity_df, product_list):
     st.markdown('<p class="section-header">🎯 Product Recommendation Engine</p>', unsafe_allow_html=True)
 
     st.markdown("""
-    <div style="background:#EEF2FF; border-radius:8px; padding:1rem; margin-bottom:1.5rem; border-left:4px solid #6366F1;">
+    <div style="background:#EEF2FF; border-radius:8px; padding:1rem; margin-bottom:1.5rem; border-left:4px solid #6366F1; color:rgb(50,150,140);">
     <b>How it works:</b> This engine uses <b>Item-Based Collaborative Filtering</b> with Cosine Similarity.
     Based on patterns from thousands of real customer transactions, it finds 5 products most commonly
     purchased by customers who also bought your product.
@@ -236,7 +298,7 @@ def page_recommendations(similarity_df, product_list):
 
             st.markdown(f"""
             <div style="background:#F0FFF4; border-radius:8px; padding:1rem; margin:0.5rem 0 1.5rem;
-                        border-left:4px solid #38A169;">
+                        border-left:4px solid #38A169; color: rgb(50, 150, 140);">
             ✅ Showing <b>5 products</b> similar to <b>{matched_name}</b>
             </div>
             """, unsafe_allow_html=True)
@@ -276,7 +338,7 @@ def page_segmentation(kmeans, scaler, label_map):
     st.markdown('<p class="section-header">👥 Customer Segmentation Predictor</p>', unsafe_allow_html=True)
 
     st.markdown("""
-    <div style="background:#FFF8EE; border-radius:8px; padding:1rem; margin-bottom:1.5rem; border-left:4px solid #F39C12;">
+    <div style="background:#FFF8EE; border-radius:8px; padding:1rem; margin-bottom:1.5rem; border-left:4px solid #F39C12; color:rgb(50,150,140);">
     <b>How it works:</b> Enter a customer's <b>RFM</b> (Recency, Frequency, Monetary) metrics.
     The KMeans++ model — trained on real transaction data — will classify the customer into one of
     four actionable business segments.

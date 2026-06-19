@@ -41,6 +41,8 @@ Thumbs.db
 
 # ─── Secrets / Credentials ───────────────────────────────
 .env
+kaggle.json
 *.pem
 *.key
 secrets.json
+kernel-metadata.json
