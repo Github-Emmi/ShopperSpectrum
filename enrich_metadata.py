@@ -52,40 +52,66 @@ DATA_FILE     = "online_retail.csv"
 METADATA_FILE = "product_metadata.json"
 SERPAPI_URL   = "https://serpapi.com/search.json"
 
-# ─── Category-aware placeholder images ────────────────────────────────────────
-_PLACEHOLDERS = {
-    "LIGHT":    "https://placehold.co/300x300/fff9c4/555555?text=Light",
-    "LANTERN":  "https://placehold.co/300x300/fff9c4/555555?text=Lantern",
-    "CANDLE":   "https://placehold.co/300x300/fff8e1/555555?text=Candle",
-    "CLOCK":    "https://placehold.co/300x300/e3f2fd/555555?text=Clock",
-    "ALARM":    "https://placehold.co/300x300/e3f2fd/555555?text=Clock",
-    "BAG":      "https://placehold.co/300x300/fce4ec/555555?text=Bag",
-    "JUMBO":    "https://placehold.co/300x300/f3e5f5/555555?text=Bag",
-    "LUNCH":    "https://placehold.co/300x300/e1f5fe/555555?text=Lunch+Box",
-    "BOX":      "https://placehold.co/300x300/f3e5f5/555555?text=Box",
-    "CAKE":     "https://placehold.co/300x300/fbe9e7/555555?text=Cake",
-    "HEART":    "https://placehold.co/300x300/fce4ec/555555?text=Heart",
-    "JAM":      "https://placehold.co/300x300/fff9c4/555555?text=Jam",
-    "VINTAGE":  "https://placehold.co/300x300/efebe9/555555?text=Vintage",
-    "FRAME":    "https://placehold.co/300x300/f5f5f5/555555?text=Frame",
-    "MUG":      "https://placehold.co/300x300/e8f5e9/555555?text=Mug",
-    "CUP":      "https://placehold.co/300x300/e8f5e9/555555?text=Cup",
-    "BASKET":   "https://placehold.co/300x300/efebe9/555555?text=Basket",
-    "DOORMAT":  "https://placehold.co/300x300/efebe9/555555?text=Doormat",
-    "CLOCK":    "https://placehold.co/300x300/e3f2fd/555555?text=Clock",
-    "RETROSPOT":"https://placehold.co/300x300/ffebee/555555?text=Retrospot",
-    "POLKADOT": "https://placehold.co/300x300/f3e5f5/555555?text=Polkadot",
-    "DEFAULT":  "https://placehold.co/300x300/f5f5f5/999999?text=Product",
+# ─── Category-aware real photo keywords (loremflickr.com) ────────────────────
+# Maps product keywords → Flickr photo search terms for realistic images.
+# Each value is a comma-joined keyword string used in the loremflickr URL.
+_CATEGORY_KEYWORDS = {
+    "LIGHT":     "lamp,light,home",
+    "LANTERN":   "lantern,vintage",
+    "CANDLE":    "candle,candleholder",
+    "CLOCK":     "clock,vintage",
+    "ALARM":     "clock,alarm",
+    "MIRROR":    "mirror,decor",
+    "BAG":       "bag,handbag",
+    "JUMBO":     "tote,bag",
+    "LUNCH":     "lunch,box",
+    "SPONGE":    "sponge,bath",
+    "BOTTLE":    "bottle,water",
+    "BOX":       "gift,box",
+    "CAKE":      "cake,baking",
+    "HEART":     "heart,decoration",
+    "JAM":       "jam,jar",
+    "VINTAGE":   "vintage,antique",
+    "FRAME":     "picture,frame",
+    "MUG":       "mug,coffee",
+    "CUP":       "cup,ceramic",
+    "TEAPOT":    "teapot,ceramic",
+    "TEACUP":    "teacup,china",
+    "BASKET":    "basket,wicker",
+    "DOORMAT":   "doormat,welcome",
+    "CUSHION":   "cushion,pillow",
+    "TOWEL":     "towel,kitchen",
+    "NOTEBOOK":  "notebook,stationery",
+    "PENCIL":    "pencil,stationery",
+    "CHRISTMAS": "christmas,decoration",
+    "WREATH":    "wreath,decoration",
+    "BALLOON":   "balloon,party",
+    "BUNTING":   "bunting,party",
+    "CANISTER":  "canister,kitchen",
+    "PLATE":     "plate,ceramic",
+    "BOWL":      "bowl,ceramic",
+    "VASE":      "vase,flower",
+    "PHOTO":     "photo,frame",
+    "GARDEN":    "garden,outdoor",
+    "DOLL":      "doll,toy",
+    "PUPPET":    "puppet,toy",
+    "TOY":       "toy,children",
+    "PUZZLE":    "puzzle,game",
+    "SIGN":      "sign,wall,decor",
+    "JIGSAW":    "puzzle,jigsaw",
+    "RETROSPOT": "fabric,pattern",
+    "POLKADOT":  "polka,dot",
+    "DEFAULT":   "gift,shop,product",
 }
 
 
-def _placeholder_url(description: str) -> str:
-    """Return a category-matched placeholder image URL."""
+def _placeholder_url(description: str, lock: int = 1) -> str:
+    """Return a category-matched loremflickr URL with real photography."""
     desc_up = description.upper()
-    for keyword, url in _PLACEHOLDERS.items():
+    for keyword, category in _CATEGORY_KEYWORDS.items():
         if keyword in desc_up:
-            return url
-    return _PLACEHOLDERS["DEFAULT"]
+            return f"https://loremflickr.com/300/300/{category}?lock={lock}"
+    return f"https://loremflickr.com/300/300/{_CATEGORY_KEYWORDS['DEFAULT']}?lock={lock}"
 
 
 def _synthetic(description: str, unit_price: float) -> dict:
@@ -100,8 +126,10 @@ def _synthetic(description: str, unit_price: float) -> dict:
     # Strike price varies 30–80% above unit price for visual variety
     multiplier = rng.uniform(1.30, 1.80)
     strike   = round(unit_price * multiplier, 2)
+    # Spread images across 20 lock seeds for visual variety per category
+    lock     = (seed % 20) + 1
     return {
-        "thumbnail":    _placeholder_url(description),
+        "thumbnail":    _placeholder_url(description, lock=lock),
         "rating":       rating,
         "reviews":      reviews,
         "unit_price":   round(unit_price, 2),
@@ -110,10 +138,12 @@ def _synthetic(description: str, unit_price: float) -> dict:
     }
 
 
-def _fetch_serpapi(description: str, unit_price: float, api_key: str) -> dict:
+def _fetch_serpapi(description: str, unit_price: float, api_key: str,
+                   max_retries: int = 4) -> dict:
     """
     Query SerpApi Google Shopping for product visual metadata.
-    Gracefully falls back to synthetic data on any error.
+    Retries on 429 with exponential backoff. Falls back to synthetic on
+    persistent failure.
     """
     try:
         import requests  # optional dependency — only needed for SerpApi mode
@@ -125,10 +155,27 @@ def _fetch_serpapi(description: str, unit_price: float, api_key: str) -> dict:
             "gl":      "gb",   # UK locale
             "hl":      "en",
         }
-        resp = requests.get(SERPAPI_URL, params=params, timeout=12)
-        resp.raise_for_status()
-        results = resp.json().get("shopping_results", [])
+        for attempt in range(max_retries):
+            try:
+                resp = requests.get(SERPAPI_URL, params=params, timeout=15)
+                if resp.status_code == 429:
+                    wait = (2 ** attempt) * 10 + random.uniform(0, 3)
+                    print(f"    Rate limited (429) — waiting {wait:.0f}s before retry {attempt + 1}/{max_retries}")
+                    time.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                break
+            except requests.exceptions.Timeout:
+                if attempt < max_retries - 1:
+                    time.sleep(5)
+                    continue
+                print(f"    Timed out after {max_retries} attempts — using synthetic")
+                return _synthetic(description, unit_price)
+        else:
+            print(f"    Exhausted retries (429) — using synthetic")
+            return _synthetic(description, unit_price)
 
+        results = resp.json().get("shopping_results", [])
         if not results:
             print(f"    No results — using synthetic")
             return _synthetic(description, unit_price)
@@ -187,6 +234,19 @@ def main() -> None:
         "--synthetic-only", action="store_true",
         help="Skip SerpApi entirely; generate deterministic synthetic metadata",
     )
+    ap.add_argument(
+        "--replace-synthetic", action="store_true",
+        help="Re-fetch entries that currently have source='synthetic' using SerpApi",
+    )
+    ap.add_argument(
+        "--regen-synthetic", action="store_true",
+        help="Regenerate all source='synthetic' entries with fresh synthetic data "
+             "(useful after changing placeholder URLs without needing to strip the file)",
+    )
+    ap.add_argument(
+        "--delay", type=float, default=0.5,
+        help="Seconds to wait between SerpApi requests (default: 0.5)",
+    )
     args = ap.parse_args()
 
     # ── Load existing cache ────────────────────────────────────────────────────
@@ -222,13 +282,25 @@ def main() -> None:
     added = skipped = 0
     for idx, (desc, avg_price) in enumerate(items, 1):
         if desc in cache:
-            skipped += 1
-            continue
+            # Regenerate in-place if --regen-synthetic and entry is synthetic
+            if args.regen_synthetic and cache[desc].get("source") == "synthetic":
+                cache[desc] = _synthetic(desc, cache[desc].get("unit_price", avg_price))
+                added += 1
+                # Incremental checkpoint every 50 new entries
+                if added % 50 == 0:
+                    with open(cp, "w") as f:
+                        json.dump(cache, f, indent=2)
+                    print(f"    Checkpoint: {len(cache):,} entries saved.")
+                continue
+            # Skip if already enriched by SerpApi
+            if not (args.replace_synthetic and cache[desc].get("source") == "synthetic" and use_api):
+                skipped += 1
+                continue
 
         print(f"  [{idx}/{len(items)}] {desc[:70]}")
         if use_api:
             cache[desc] = _fetch_serpapi(desc, avg_price, api_key)
-            time.sleep(0.5)   # respect SerpApi rate limits
+            time.sleep(args.delay)   # respect SerpApi rate limits
         else:
             cache[desc] = _synthetic(desc, avg_price)
         added += 1
