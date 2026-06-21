@@ -4,25 +4,37 @@ enrich_metadata.py
 ==================
 Visual Metadata Bridge: online_retail.csv → product_metadata.json
 
-Fetches product thumbnails, ratings, and review counts from SerpApi
-Google Shopping for every unique product in the UK retail dataset.
-Falls back to deterministic synthetic data when no API key is set.
+Fetches product thumbnails, ratings, and review counts from Google
+Shopping via Serper.dev (recommended) or SerpApi.  Falls back to
+deterministic Picsum Photos when no API key is provided.
 
 Usage
 -----
-    # Full SerpApi enrichment (requires SERPAPI_KEY env var)
-    export SERPAPI_KEY="your_serpapi_key_here"
+    # Serper.dev — 2,500 FREE queries, no credit card required
+    # Sign up at https://serper.dev  (takes ~1 minute)
+    export SERPER_KEY="your_serper_key"
     python enrich_metadata.py
 
-    # Synthetic mode — no API key, instant, deterministic output
+    # SerpApi (legacy; 250 free searches/month)
+    export SERPAPI_KEY="your_serpapi_key"
+    python enrich_metadata.py
+
+    # Re-fetch all entries currently marked source='synthetic'
+    export SERPER_KEY="your_serper_key"
+    python enrich_metadata.py --replace-synthetic
+
+    # Regenerate synthetic placeholders in-place (no API)
+    python enrich_metadata.py --regen-synthetic
+
+    # Synthetic mode — no API key, instant deterministic Picsum output
     python enrich_metadata.py --synthetic-only
 
-    # Process only the first N unique products
+    # Limit to first N products
     python enrich_metadata.py --limit 200
 
 The script is fully idempotent: products already present in
-product_metadata.json are skipped to preserve API credits.
-A checkpoint is saved every 50 new entries.
+product_metadata.json with a real source are skipped to preserve
+API credits.  A checkpoint is saved every 50 new entries.
 
 Output
 ------
@@ -34,7 +46,7 @@ product_metadata.json  (keyed by product Description string)
     "reviews":      2847,
     "unit_price":   2.55,
     "strike_price": 3.83,
-    "source":       "serpapi" | "synthetic"
+    "source":       "serper" | "serpapi" | "synthetic"
   },
   ...
 }
@@ -51,6 +63,7 @@ from pathlib import Path
 DATA_FILE     = "online_retail.csv"
 METADATA_FILE = "product_metadata.json"
 SERPAPI_URL   = "https://serpapi.com/search.json"
+SERPER_URL    = "https://google.serper.dev/shopping"
 
 def _placeholder_url(description: str, seed: int = 0) -> str:
     """
@@ -87,6 +100,76 @@ def _synthetic(description: str, unit_price: float) -> dict:
         "strike_price": strike,
         "source":       "synthetic",
     }
+
+
+def _fetch_serper(description: str, unit_price: float, api_key: str,
+                  max_retries: int = 4) -> dict:
+    """
+    Query Serper.dev Google Shopping API for real product thumbnails.
+    2,500 free queries on signup — https://serper.dev
+    Retries on 429 with exponential backoff.
+    """
+    try:
+        import requests
+        import re as _re
+        headers = {
+            "X-API-KEY":     api_key,
+            "Content-Type":  "application/json",
+        }
+        payload = {"q": description, "gl": "gb", "hl": "en", "num": 3}
+
+        for attempt in range(max_retries):
+            try:
+                resp = requests.post(
+                    SERPER_URL, headers=headers, json=payload, timeout=15
+                )
+                if resp.status_code == 429:
+                    wait = (2 ** attempt) * 10 + random.uniform(0, 3)
+                    print(f"    Rate limited (429) — waiting {wait:.0f}s "
+                          f"before retry {attempt + 1}/{max_retries}")
+                    time.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                break
+            except requests.exceptions.Timeout:
+                if attempt < max_retries - 1:
+                    time.sleep(5)
+                    continue
+                print("    Timed out — using synthetic")
+                return _synthetic(description, unit_price)
+        else:
+            print("    Exhausted retries (429) — using synthetic")
+            return _synthetic(description, unit_price)
+
+        results = resp.json().get("shopping", [])
+        if not results:
+            print("    No results — using synthetic")
+            return _synthetic(description, unit_price)
+
+        item      = results[0]
+        thumbnail = item.get("imageUrl") or _placeholder_url(description)
+        rating    = float(item.get("rating") or random.uniform(3.8, 4.9))
+        reviews   = int(item.get("ratingCount") or random.randint(500, 15_000))
+
+        # Price field is a string like "£3.99" or "$2.49" — extract float
+        price_str = item.get("price", "")
+        price_num = _re.sub(r"[^\d.]", "", price_str)
+        ex_price  = float(price_num) if price_num else unit_price
+
+        return {
+            "thumbnail":    thumbnail,
+            "rating":       round(min(5.0, max(1.0, rating)), 1),
+            "reviews":      reviews,
+            "unit_price":   round(ex_price, 2),
+            "strike_price": round(ex_price * 1.5, 2),
+            "source":       "serper",
+        }
+    except ImportError:
+        print("    'requests' not installed — pip install requests")
+        return _synthetic(description, unit_price)
+    except Exception as exc:
+        print(f"    Serper error: {exc} — using synthetic")
+        return _synthetic(description, unit_price)
 
 
 def _fetch_serpapi(description: str, unit_price: float, api_key: str,
@@ -216,19 +299,32 @@ def main() -> None:
     products = _read_products(DATA_FILE)
     print(f"Found {len(products):,} unique products in {DATA_FILE}")
 
-    # ── Decide API vs synthetic ────────────────────────────────────────────────
-    api_key = os.getenv("SERPAPI_KEY", "")
-    use_api = bool(api_key) and not args.synthetic_only
-    if not use_api:
-        mode = "synthetic-only (no SERPAPI_KEY set)" if not api_key else "synthetic-only (--synthetic-only flag)"
-        print(f"Mode: {mode}")
+    # ── Decide API provider ────────────────────────────────────────────────────
+    # SERPER_KEY takes priority (2,500 free queries, no card required)
+    # Fall back to SERPAPI_KEY if SERPER_KEY is not set.
+    serper_key  = os.getenv("SERPER_KEY", "")
+    serpapi_key = os.getenv("SERPAPI_KEY", "")
+
+    if args.synthetic_only:
+        use_api, api_provider, active_key = False, None, ""
+        print("Mode: synthetic-only (--synthetic-only flag)")
+    elif serper_key:
+        use_api, api_provider, active_key = True, "serper", serper_key
+        print(f"Mode: Serper.dev Google Shopping (key: {serper_key[:8]}...)")
+    elif serpapi_key:
+        use_api, api_provider, active_key = True, "serpapi", serpapi_key
+        print(f"Mode: SerpApi Google Shopping (key: {serpapi_key[:8]}...)")
     else:
-        print(f"Mode: SerpApi enrichment (key: {api_key[:8]}...)")
+        use_api, api_provider, active_key = False, None, ""
+        print("Mode: synthetic-only (no SERPER_KEY or SERPAPI_KEY set)")
 
     # ── Enrichment loop ────────────────────────────────────────────────────────
     items = list(products.items())
     if args.limit:
         items = items[: args.limit]
+
+    # "real" sources that should NOT be re-fetched unless --replace-synthetic
+    _real_sources = {"serper", "serpapi"}
 
     added = skipped = 0
     for idx, (desc, avg_price) in enumerate(items, 1):
@@ -237,21 +333,29 @@ def main() -> None:
             if args.regen_synthetic and cache[desc].get("source") == "synthetic":
                 cache[desc] = _synthetic(desc, cache[desc].get("unit_price", avg_price))
                 added += 1
-                # Incremental checkpoint every 50 new entries
                 if added % 50 == 0:
                     with open(cp, "w") as f:
                         json.dump(cache, f, indent=2)
                     print(f"    Checkpoint: {len(cache):,} entries saved.")
                 continue
-            # Skip if already enriched by SerpApi
-            if not (args.replace_synthetic and cache[desc].get("source") == "synthetic" and use_api):
+            # Skip real entries; skip synthetic unless --replace-synthetic + api
+            is_real    = cache[desc].get("source") in _real_sources
+            want_refetch = (
+                args.replace_synthetic
+                and cache[desc].get("source") == "synthetic"
+                and use_api
+            )
+            if is_real or not want_refetch:
                 skipped += 1
                 continue
 
         print(f"  [{idx}/{len(items)}] {desc[:70]}")
         if use_api:
-            cache[desc] = _fetch_serpapi(desc, avg_price, api_key)
-            time.sleep(args.delay)   # respect SerpApi rate limits
+            if api_provider == "serper":
+                cache[desc] = _fetch_serper(desc, avg_price, active_key)
+            else:
+                cache[desc] = _fetch_serpapi(desc, avg_price, active_key)
+            time.sleep(args.delay)
         else:
             cache[desc] = _synthetic(desc, avg_price)
         added += 1
@@ -272,9 +376,9 @@ def main() -> None:
     )
     if not use_api:
         print(
-            "\nTo enrich with real product images, set SERPAPI_KEY and re-run:\n"
-            "  export SERPAPI_KEY='your_key'\n"
-            "  python enrich_metadata.py"
+            "\nTo enrich with real product images, set SERPER_KEY and re-run:\n"
+            "  export SERPER_KEY='your_key'   # 2,500 free at https://serper.dev\n"
+            "  python enrich_metadata.py --replace-synthetic\n"
         )
 
 
