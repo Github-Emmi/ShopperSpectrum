@@ -12,6 +12,7 @@ Prerequisites: Run shopper_spectrum.ipynb first to generate models/
 """
 
 import os
+import json
 import pickle
 import difflib
 import warnings
@@ -105,6 +106,89 @@ st.markdown("""
     .css-1d391kg { background: #1a1a2e; }
     section[data-testid="stSidebar"] { background: #1a1a2e; }
     section[data-testid="stSidebar"] * { color: #a8b2d8 !important; }
+
+    /* ── AliExpress Product Cards ──────────────────────────────────────── */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    .ali-card {
+        font-family: 'Inter', 'Roboto', sans-serif;
+        background: #fff;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        border: 1px solid #f0f0f0;
+        transition: transform 0.22s, box-shadow 0.22s;
+        cursor: pointer;
+        margin-bottom: 4px;
+    }
+    .ali-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 28px rgba(230,46,4,0.18);
+        border-color: #E62E04;
+    }
+    .ali-img-wrap {
+        position: relative;
+        width: 100%;
+        padding-top: 100%;
+        background: #f7f7f7;
+        overflow: hidden;
+    }
+    .ali-img-wrap img {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        object-fit: cover;
+        transition: transform 0.3s;
+    }
+    .ali-card:hover .ali-img-wrap img { transform: scale(1.05); }
+    .ali-discount-badge {
+        position: absolute;
+        top: 8px; left: 8px;
+        background: #E62E04;
+        color: #fff;
+        font-size: 0.68rem;
+        font-weight: 700;
+        padding: 2px 7px;
+        border-radius: 4px;
+        z-index: 2;
+        letter-spacing: 0.3px;
+    }
+    .ali-rank-badge {
+        position: absolute;
+        top: 8px; right: 8px;
+        color: #fff;
+        font-size: 0.68rem;
+        font-weight: 700;
+        padding: 2px 7px;
+        border-radius: 4px;
+        z-index: 2;
+    }
+    .ali-card-body { padding: 9px 11px 12px; }
+    .ali-title {
+        font-size: 0.8rem;
+        color: #222;
+        margin: 0 0 7px;
+        line-height: 1.45;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        min-height: 2.3em;
+        font-weight: 500;
+    }
+    .ali-price-row { display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; margin-bottom: 4px; }
+    .ali-price  { font-size: 1.1rem; font-weight: 700; color: #E62E04; }
+    .ali-strike { font-size: 0.74rem; color: #bbb; text-decoration: line-through; }
+    .ali-sold-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 0.71rem;
+        color: #888;
+        flex-wrap: wrap;
+    }
+    .ali-stars       { color: #FFAB00; letter-spacing: 1px; }
+    .ali-rating-num  { color: #555; font-weight: 600; }
+    .ali-sold-count  { color: #aaa; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -215,6 +299,96 @@ def models_missing_banner():
     </div>
     """, unsafe_allow_html=True)
 
+# ─── PRODUCT METADATA (VISUAL ENRICHMENT) ───────────────────────────────────
+@st.cache_data(show_spinner=False)
+def load_product_metadata() -> dict:
+    """
+    Load product_metadata.json (built by enrich_metadata.py) into memory.
+    Cached with @st.cache_data — disk read happens only once per session.
+    Returns an empty dict if the file is absent (app degrades gracefully).
+    """
+    path = "product_metadata.json"
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            return json.load(f)
+    return {}
+
+
+def _get_product_meta(name: str, metadata_cache: dict) -> dict:
+    """
+    Return visual metadata for a product name.
+    Looks up the cache first; generates deterministic synthetic data as fallback
+    so the UI is never broken by a missing entry.
+    """
+    if name in metadata_cache:
+        return metadata_cache[name]
+    # Deterministic synthetic fallback (same name → same values every render)
+    seed = sum(ord(c) for c in name) % 100_000
+    rng  = random.Random(seed)
+    price = round(rng.uniform(1.5, 20.0), 2)
+    return {
+        "thumbnail":    "https://placehold.co/300x300/f5f5f5/999999?text=Product",
+        "rating":       round(rng.uniform(3.8, 4.9), 1),
+        "reviews":      rng.randint(500, 25_000),
+        "unit_price":   price,
+        "strike_price": round(price * rng.uniform(1.3, 1.7), 2),
+    }
+
+
+def _render_aliexpress_card(name: str, meta: dict, rank: int = None) -> str:
+    """
+    Render an AliExpress-style HTML product card.
+    Compatible with st.markdown(..., unsafe_allow_html=True).
+    """
+    placeholder = "https://placehold.co/300x300/f5f5f5/999999?text=Product"
+    thumbnail   = meta.get("thumbnail") or placeholder
+    price       = float(meta.get("unit_price", 2.99))
+    strike      = float(meta.get("strike_price", price * 1.5))
+    rating      = float(meta.get("rating", 4.2))
+    reviews     = int(meta.get("reviews", 1000))
+    discount    = max(1, round((1 - price / strike) * 100)) if strike > price else 0
+
+    # Star display (filled ★ vs empty ☆)
+    full_stars = int(rating)
+    star_html  = "★" * full_stars + "☆" * (5 - full_stars)
+
+    # Sold count formatting
+    if reviews >= 10_000:
+        sold_str = f"{int(reviews / 1000)}K+"
+    elif reviews >= 1_000:
+        sold_str = f"{reviews / 1000:.1f}K+"
+    else:
+        sold_str = f"{reviews:,}"
+
+    display = (name[:52] + "…") if len(name) > 52 else name
+
+    # Optional rank badge (#1, #2, #3 → coloured; rest grey)
+    rank_badge = ""
+    if rank:
+        colours = {1: "#E62E04", 2: "#dd4b22", 3: "#e07c40"}
+        c = colours.get(rank, "#888888")
+        rank_badge = f'<div class="ali-rank-badge" style="background:{c};">#{rank}</div>'
+
+    return f"""<div class="ali-card">
+  <div class="ali-img-wrap">
+    <img src="{thumbnail}" alt="{display}"
+         onerror="this.onerror=null;this.src='{placeholder}';" />
+    {'<div class="ali-discount-badge">-' + str(discount) + '%</div>' if discount > 0 else ''}
+    {rank_badge}
+  </div>
+  <div class="ali-card-body">
+    <p class="ali-title">{display}</p>
+    <div class="ali-price-row">
+      <span class="ali-price">£{price:.2f}</span>
+      <span class="ali-strike">£{strike:.2f}</span>
+    </div>
+    <div class="ali-sold-row">
+      <span class="ali-stars">{star_html}</span>
+      <span class="ali-rating-num">&nbsp;{rating}&nbsp;</span>
+      <span class="ali-sold-count">{sold_str} sold</span>
+    </div>
+  </div>
+</div>"""
 
 # ─── RECOMMENDATION HELPER ─────────────────────────────────────────────────────
 def get_recommendations(product_name: str, similarity_df, product_list: list, n: int = 5):
@@ -335,8 +509,9 @@ def page_recommendations(similarity_df, product_list):
         st.markdown("<br>", unsafe_allow_html=True)
         get_btn = st.button("Get Recommendations", type="primary", use_container_width=True)
 
-    # ── 5. "Recommended for you" expander ─────────────────────────────────────
-    with st.expander("💡 Recommended for you"):
+    # ── 5. "Recommended for you" — AliExpress card grid (3 × 2) ─────────────
+    metadata = load_product_metadata()
+    with st.expander("💡 Recommended for you", expanded=True):
         exp_col, _ = st.columns([1, 4])
         with exp_col:
             if st.button("🔄 Refresh Suggestions", key="refresh_recs"):
@@ -345,10 +520,20 @@ def page_recommendations(similarity_df, product_list):
                 )
                 st.session_state.placeholder_index = 0
                 st.rerun()
-        col_ex = st.columns(3)
-        for i, item in enumerate(st.session_state.current_recommendations):
-            with col_ex[i % 3]:
-                st.code(item, language=None)
+        st.markdown("<br>", unsafe_allow_html=True)
+        # 3-column × 2-row AliExpress product grid
+        for row_start in range(0, 6, 3):
+            row_cols = st.columns(3)
+            for j, col in enumerate(row_cols):
+                idx = row_start + j
+                if idx < len(st.session_state.current_recommendations):
+                    item = st.session_state.current_recommendations[idx]
+                    meta = _get_product_meta(item, metadata)
+                    with col:
+                        st.markdown(
+                            _render_aliexpress_card(item, meta),
+                            unsafe_allow_html=True,
+                        )
 
     # ── 6. Process recommendation request ─────────────────────────────────────
     if get_btn and product_input.strip():
@@ -380,19 +565,15 @@ def page_recommendations(similarity_df, product_list):
             </div>
             """, unsafe_allow_html=True)
 
-            # Display recommendations as cards
-            rank_emojis = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+            # Display recommendations as AliExpress-style cards (5 columns)
             cols = st.columns(5)
             for i, (rec, col) in enumerate(zip(recs, cols)):
+                rec_meta = _get_product_meta(rec, metadata)
                 with col:
-                    st.markdown(f"""
-                    <div class="reco-card">
-                        <div>
-                            <div class="reco-rank">{rank_emojis[i]}</div>
-                            <p>{rec}</p>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(
+                        _render_aliexpress_card(rec, rec_meta, rank=i + 1),
+                        unsafe_allow_html=True,
+                    )
 
             # Similarity scores table
             with st.expander("📊 View Similarity Scores"):
