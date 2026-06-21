@@ -52,66 +52,19 @@ DATA_FILE     = "online_retail.csv"
 METADATA_FILE = "product_metadata.json"
 SERPAPI_URL   = "https://serpapi.com/search.json"
 
-# ─── Category-aware real photo keywords (loremflickr.com) ────────────────────
-# Maps product keywords → Flickr photo search terms for realistic images.
-# Each value is a comma-joined keyword string used in the loremflickr URL.
-_CATEGORY_KEYWORDS = {
-    "LIGHT":     "lamp,light,home",
-    "LANTERN":   "lantern,vintage",
-    "CANDLE":    "candle,candleholder",
-    "CLOCK":     "clock,vintage",
-    "ALARM":     "clock,alarm",
-    "MIRROR":    "mirror,decor",
-    "BAG":       "bag,handbag",
-    "JUMBO":     "tote,bag",
-    "LUNCH":     "lunch,box",
-    "SPONGE":    "sponge,bath",
-    "BOTTLE":    "bottle,water",
-    "BOX":       "gift,box",
-    "CAKE":      "cake,baking",
-    "HEART":     "heart,decoration",
-    "JAM":       "jam,jar",
-    "VINTAGE":   "vintage,antique",
-    "FRAME":     "picture,frame",
-    "MUG":       "mug,coffee",
-    "CUP":       "cup,ceramic",
-    "TEAPOT":    "teapot,ceramic",
-    "TEACUP":    "teacup,china",
-    "BASKET":    "basket,wicker",
-    "DOORMAT":   "doormat,welcome",
-    "CUSHION":   "cushion,pillow",
-    "TOWEL":     "towel,kitchen",
-    "NOTEBOOK":  "notebook,stationery",
-    "PENCIL":    "pencil,stationery",
-    "CHRISTMAS": "christmas,decoration",
-    "WREATH":    "wreath,decoration",
-    "BALLOON":   "balloon,party",
-    "BUNTING":   "bunting,party",
-    "CANISTER":  "canister,kitchen",
-    "PLATE":     "plate,ceramic",
-    "BOWL":      "bowl,ceramic",
-    "VASE":      "vase,flower",
-    "PHOTO":     "photo,frame",
-    "GARDEN":    "garden,outdoor",
-    "DOLL":      "doll,toy",
-    "PUPPET":    "puppet,toy",
-    "TOY":       "toy,children",
-    "PUZZLE":    "puzzle,game",
-    "SIGN":      "sign,wall,decor",
-    "JIGSAW":    "puzzle,jigsaw",
-    "RETROSPOT": "fabric,pattern",
-    "POLKADOT":  "polka,dot",
-    "DEFAULT":   "gift,shop,product",
-}
-
-
-def _placeholder_url(description: str, lock: int = 1) -> str:
-    """Return a category-matched loremflickr URL with real photography."""
-    desc_up = description.upper()
-    for keyword, category in _CATEGORY_KEYWORDS.items():
-        if keyword in desc_up:
-            return f"https://loremflickr.com/300/300/{category}?lock={lock}"
-    return f"https://loremflickr.com/300/300/{_CATEGORY_KEYWORDS['DEFAULT']}?lock={lock}"
+def _placeholder_url(description: str, seed: int = 0) -> str:
+    """
+    Return a deterministic Picsum Photos URL seeded by the product name.
+    Every product gets a unique, consistent, beautiful photograph.
+    picsum.photos/seed/{text}/WxH is free, no API key, and stable.
+    """
+    import re
+    # Build a clean URL-safe slug from the description
+    slug = description.lower()[:40]
+    slug = re.sub(r"[^a-z0-9\s-]", "", slug)   # strip non-alphanum except space/hyphen
+    slug = re.sub(r"\s+", "-", slug.strip())     # spaces → hyphens
+    slug = slug.strip("-") or "product"
+    return f"https://picsum.photos/seed/{slug}/300/300"
 
 
 def _synthetic(description: str, unit_price: float) -> dict:
@@ -126,10 +79,8 @@ def _synthetic(description: str, unit_price: float) -> dict:
     # Strike price varies 30–80% above unit price for visual variety
     multiplier = rng.uniform(1.30, 1.80)
     strike   = round(unit_price * multiplier, 2)
-    # Spread images across 20 lock seeds for visual variety per category
-    lock     = (seed % 20) + 1
     return {
-        "thumbnail":    _placeholder_url(description, lock=lock),
+        "thumbnail":    _placeholder_url(description, seed=seed),
         "rating":       rating,
         "reviews":      reviews,
         "unit_price":   round(unit_price, 2),
