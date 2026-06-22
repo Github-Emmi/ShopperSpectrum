@@ -63,7 +63,7 @@ from pathlib import Path
 DATA_FILE     = "online_retail.csv"
 METADATA_FILE = "product_metadata.json"
 SERPAPI_URL   = "https://serpapi.com/search.json"
-SERPER_URL    = "https://google.serper.dev/shopping"
+SERPER_URL    = "https://google.serper.dev/images"   # returns HTTPS thumbnailUrl
 
 def _placeholder_url(description: str, seed: int = 0) -> str:
     """
@@ -141,27 +141,25 @@ def _fetch_serper(description: str, unit_price: float, api_key: str,
             print("    Exhausted retries (429) — using synthetic")
             return _synthetic(description, unit_price)
 
-        results = resp.json().get("shopping", [])
+        results = resp.json().get("images", [])
         if not results:
             print("    No results — using synthetic")
             return _synthetic(description, unit_price)
 
         item      = results[0]
-        thumbnail = item.get("imageUrl") or _placeholder_url(description)
-        rating    = float(item.get("rating") or random.uniform(3.8, 4.9))
-        reviews   = int(item.get("ratingCount") or random.randint(500, 15_000))
+        # thumbnailUrl is a real HTTPS URL (no base64 bloat)
+        thumbnail = item.get("thumbnailUrl") or item.get("imageUrl") or _placeholder_url(description)
 
-        # Price field is a string like "£3.99" or "$2.49" — extract float
-        price_str = item.get("price", "")
-        price_num = _re.sub(r"[^\d.]", "", price_str)
-        ex_price  = float(price_num) if price_num else unit_price
+        # Reject data-URI thumbnails (base64 inline images are too large for JSON)
+        if thumbnail.startswith("data:"):
+            thumbnail = _placeholder_url(description)
 
         return {
             "thumbnail":    thumbnail,
-            "rating":       round(min(5.0, max(1.0, rating)), 1),
-            "reviews":      reviews,
-            "unit_price":   round(ex_price, 2),
-            "strike_price": round(ex_price * 1.5, 2),
+            "rating":       round(random.uniform(3.8, 4.9), 1),   # images API has no ratings
+            "reviews":      random.randint(500, 15_000),
+            "unit_price":   round(unit_price, 2),
+            "strike_price": round(unit_price * 1.5, 2),
             "source":       "serper",
         }
     except ImportError:
@@ -323,8 +321,15 @@ def main() -> None:
     if args.limit:
         items = items[: args.limit]
 
-    # "real" sources that should NOT be re-fetched unless --replace-synthetic
-    _real_sources = {"serper", "serpapi"}
+    # "real" sources that should NOT be re-fetched unless --replace-synthetic.
+    # Exception: a serper entry whose thumbnail is a data-URI (base64 bloat from
+    # the old /shopping endpoint) is treated as needing re-fetch.
+    def _needs_refetch(entry: dict) -> bool:
+        if entry.get("source") == "synthetic":
+            return True
+        if entry.get("source") == "serper" and entry.get("thumbnail", "").startswith("data:"):
+            return True  # base64 blob — re-fetch with /images endpoint
+        return False
 
     added = skipped = 0
     for idx, (desc, avg_price) in enumerate(items, 1):
@@ -339,13 +344,7 @@ def main() -> None:
                     print(f"    Checkpoint: {len(cache):,} entries saved.")
                 continue
             # Skip real entries; skip synthetic unless --replace-synthetic + api
-            is_real    = cache[desc].get("source") in _real_sources
-            want_refetch = (
-                args.replace_synthetic
-                and cache[desc].get("source") == "synthetic"
-                and use_api
-            )
-            if is_real or not want_refetch:
+            if not (args.replace_synthetic and _needs_refetch(cache[desc]) and use_api):
                 skipped += 1
                 continue
 
