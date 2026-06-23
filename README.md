@@ -1,4 +1,5 @@
 # 🛒 Shopper Spectrum
+# Author: *Aghason Emmanuel*
 ### Customer Segmentation & Product Recommendations in E-Commerce
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python)
@@ -36,7 +37,7 @@
 | Capability | Method | Output |
 |-----------|--------|--------|
 | **Customer Segmentation** | RFM Analysis + KMeans++ Clustering | One of 4 segment labels (High-Value, Regular, Occasional, At-Risk) |
-| **Product Recommendations** | Item-Based Collaborative Filtering + Cosine Similarity | Top 5 similar products with fuzzy matching |
+| **Product Recommendations** | Item-Based Collaborative Filtering + Cosine Similarity | Top 6 similar products with fuzzy matching |
 
 The system follows a **Batch-First ML Pipeline + Streamlit Serving** architecture — the Jupyter notebook trains and exports model artifacts, and the Streamlit app loads them for real-time inference.
 
