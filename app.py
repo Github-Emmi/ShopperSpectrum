@@ -1,7 +1,7 @@
 """
 Shopper Spectrum — Streamlit Application
 =========================================
-Author  : AI/ML Engineer
+Author  : Aghason Emmanuel I. (AI/ML Engineer)
 Version : 1.0
 Purpose : Serve trained ML models for real-time:
           1) Product Recommendations (Collaborative Filtering)
