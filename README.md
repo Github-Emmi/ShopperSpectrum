@@ -1,5 +1,8 @@
 # 🛒 Shopper Spectrum
 # Author: *Aghason Emmanuel*
+# Github Repository: *https://github.com/Github-Emmi/ShopperSpectrum*
+# Render Production url: *https://shopperspectrum.onrender.com*
+
 ### Customer Segmentation & Product Recommendations in E-Commerce
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python)

@@ -202,7 +202,7 @@ def _download_from_kaggle(models_dir: str) -> None:
     Supports two auth modes (set as Render environment variables):
       - New (CLI 2.x):  KAGGLE_API_TOKEN=KGAT_xxxx
       - Legacy:         KAGGLE_USERNAME + KAGGLE_KEY
-    """
+    """ 
     try:
         import kaggle  # kaggle package must be in requirements.txt
 
