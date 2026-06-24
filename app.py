@@ -470,6 +470,20 @@ def page_recommendations(similarity_df, product_list):
     if "placeholder_index" not in st.session_state:
         st.session_state.placeholder_index = 0
 
+    # FIX: Persist ALL result data needed across auto-refresh re-renders.
+    # st_autorefresh fires every 2 s — get_btn is only True on the exact
+    # click run, so everything displayed must live in session_state.
+    if "last_matched_name" not in st.session_state:
+        st.session_state.last_matched_name = None      # str | None
+    if "last_product_input" not in st.session_state:
+        st.session_state.last_product_input = ""       # original user query
+    if "last_cf_recs" not in st.session_state:
+        st.session_state.last_cf_recs = []             # CF top-5: list[str]
+    if "last_name_matches" not in st.session_state:
+        st.session_state.last_name_matches = []        # keyword matches: list[str]
+    if "last_rec_error" not in st.session_state:
+        st.session_state.last_rec_error = None         # str | None
+
     # ── 2. Ticker — auto-refresh every 2 s (cycles placeholder only) ─────────
     try:
         from streamlit_autorefresh import st_autorefresh
@@ -489,14 +503,15 @@ def page_recommendations(similarity_df, product_list):
     st.markdown('<p class="section-header">🎯 Product Recommendation Engine</p>', unsafe_allow_html=True)
 
     st.markdown("""
-    <div style="background:#EEF2FF; border-radius:8px; padding:1rem; margin-bottom:1.5rem; border-left:4px solid #6366F1; color:rgb(50,150,140);">
-    <b>How it works:</b> This engine uses <b>Item-Based Collaborative Filtering</b> with Cosine Similarity.
-    Based on patterns from thousands of real customer transactions, it finds 5 products most commonly
-    purchased by customers who also bought your product.
+    <div style="background:#EEF2FF; border-radius:8px; padding:1rem; margin-bottom:1.5rem;
+                border-left:4px solid #6366F1; color:rgb(50,150,140);">
+    <b>How it works:</b> This engine uses <b>Item-Based Collaborative Filtering</b> with Cosine
+    Similarity. Based on patterns from thousands of real customer transactions, it finds 5 products
+    most commonly purchased by customers who also bought your product.
     </div>
     """, unsafe_allow_html=True)
 
-    # ── 4. Input area with dynamic placeholder ────────────────────────────────
+    # ── 4. Input area ─────────────────────────────────────────────────────────
     col1, col2 = st.columns([3, 1])
     with col1:
         product_input = st.text_input(
@@ -515,13 +530,14 @@ def page_recommendations(similarity_df, product_list):
         exp_col, _ = st.columns([1, 4])
         with exp_col:
             if st.button("🔄 Refresh Suggestions", key="refresh_recs"):
+                # Only refreshes the "Recommended for you" panel.
+                # last_cf_recs / last_name_matches are intentionally NOT touched.
                 st.session_state.current_recommendations = _get_dynamic_suggestions(
                     st.session_state.search_history, similarity_df, product_list, n=6
                 )
                 st.session_state.placeholder_index = 0
                 st.rerun()
         st.markdown("<br>", unsafe_allow_html=True)
-        # 3-column × 2-row AliExpress product grid
         for row_start in range(0, 6, 3):
             row_cols = st.columns(3)
             for j, col in enumerate(row_cols):
@@ -535,39 +551,74 @@ def page_recommendations(similarity_df, product_list):
                             unsafe_allow_html=True,
                         )
 
-    # ── 6. Process recommendation request ─────────────────────────────────────
+    # ── 6. Process button click — write results into session_state ────────────
+    # This block only executes on the exact re-render when the user clicked.
+    # All output is stored in session_state; rendering happens in step 7.
     if get_btn and product_input.strip():
-        with st.spinner("Finding similar products..."):
-            recs, matched_name = get_recommendations(product_input, similarity_df, product_list)
+        query = product_input.strip().upper()
 
-        if not recs:
-            st.warning(
-                f"⚠️ No match found for **\"{product_input}\"**. "
-                "Try a different product name or check the suggestions above."
+        with st.spinner("Finding products..."):
+            # ── 6a. Keyword / name matches ────────────────────────────────────
+            # Products whose name contains the query string (case-insensitive).
+            name_matches = [p for p in product_list if query in p.upper()][:5]
+
+            # ── 6b. Collaborative-filtering recommendations ───────────────────
+            # Use the first name match (or fuzzy match) as the anchor product.
+            cf_recs, matched_name = get_recommendations(
+                product_input, similarity_df, product_list
             )
-        else:
-            # Update search history and evolve recommendations on new successful search
-            if matched_name not in st.session_state.search_history:
-                st.session_state.search_history.append(matched_name)
-                st.session_state.current_recommendations = _get_dynamic_suggestions(
-                    st.session_state.search_history, similarity_df, product_list, n=6
-                )
-                st.session_state.placeholder_index = 0
 
-            # Show matched name if different from input
-            if matched_name.upper() != product_input.strip().upper():
-                st.info(f"🔄 Matched to: **{matched_name}**")
+        # Store everything — success or failure — so step 7 can render it.
+        st.session_state.last_product_input  = product_input
+        st.session_state.last_name_matches   = name_matches
+        st.session_state.last_cf_recs        = cf_recs or []
+        st.session_state.last_matched_name   = matched_name
+        st.session_state.last_rec_error      = (
+            None if (name_matches or cf_recs) else
+            f"⚠️ No match found for **\"{product_input}\"**. "
+            "Try a different product name or check the suggestions above."
+        )
 
+        # Evolve "Recommended for you" on a successful CF search.
+        if matched_name and matched_name not in st.session_state.search_history:
+            st.session_state.search_history.append(matched_name)
+            st.session_state.current_recommendations = _get_dynamic_suggestions(
+                st.session_state.search_history, similarity_df, product_list, n=6
+            )
+            st.session_state.placeholder_index = 0
+
+    elif get_btn and not product_input.strip():
+        st.warning("Please enter a product name first.")
+
+    # ── 7. Render persisted results — runs on EVERY re-render ─────────────────
+    # Reading from session_state means the cards survive all auto-refresh cycles.
+    if st.session_state.last_rec_error:
+        st.warning(st.session_state.last_rec_error)
+
+    elif st.session_state.last_name_matches or st.session_state.last_cf_recs:
+
+        matched_name        = st.session_state.last_matched_name
+        product_input_disp  = st.session_state.last_product_input
+        name_matches        = st.session_state.last_name_matches
+        cf_recs             = st.session_state.last_cf_recs
+
+        # Fuzzy-match notice when the engine corrected the user's spelling.
+        if matched_name and matched_name.upper() != product_input_disp.strip().upper():
+            st.info(f"🔄 Matched to: **{matched_name}**")
+
+        # ── Section A: Products matching the search term ───────────────────
+        if name_matches:
             st.markdown(f"""
-            <div style="background:#F0FFF4; border-radius:8px; padding:1rem; margin:0.5rem 0 1.5rem;
-                        border-left:4px solid #38A169; color: rgb(50, 150, 140);">
-            ✅ Showing <b>5 products</b> similar to <b>{matched_name}</b>
+            <div style="background:#EEF2FF; border-radius:8px; padding:1rem;
+                        margin:0.5rem 0 1rem; border-left:4px solid #6366F1;
+                        color:rgb(50,100,180);">
+            🔎 <b>{len(name_matches)} product{'s' if len(name_matches) > 1 else ''}
+            matching</b> <b>"{product_input_disp}"</b>
             </div>
             """, unsafe_allow_html=True)
 
-            # Display recommendations as AliExpress-style cards (5 columns)
-            cols = st.columns(5)
-            for i, (rec, col) in enumerate(zip(recs, cols)):
+            cols_a = st.columns(min(len(name_matches), 5))
+            for i, (rec, col) in enumerate(zip(name_matches, cols_a)):
                 rec_meta = _get_product_meta(rec, metadata)
                 with col:
                     st.markdown(
@@ -575,18 +626,39 @@ def page_recommendations(similarity_df, product_list):
                         unsafe_allow_html=True,
                     )
 
-            # Similarity scores table
+        # ── Section B: "Customers also bought" CF recommendations ─────────
+        if cf_recs:
+            anchor = matched_name or product_input_disp
+            st.markdown(f"""
+            <div style="background:#F0FFF4; border-radius:8px; padding:1rem;
+                        margin:1.5rem 0 1rem; border-left:4px solid #38A169;
+                        color:rgb(30,130,80);">
+            🛒 <b>Customers who bought <em>{anchor}</em> also purchased:</b>
+            </div>
+            """, unsafe_allow_html=True)
+
+            cols_b = st.columns(min(len(cf_recs), 5))
+            for i, (rec, col) in enumerate(zip(cf_recs, cols_b)):
+                rec_meta = _get_product_meta(rec, metadata)
+                with col:
+                    st.markdown(
+                        _render_aliexpress_card(rec, rec_meta, rank=i + 1),
+                        unsafe_allow_html=True,
+                    )
+
+            # Similarity scores — collapsed by default so they don't distract.
             with st.expander("📊 View Similarity Scores"):
-                scores = similarity_df[matched_name].drop(matched_name)\
-                             .sort_values(ascending=False).head(5)
+                scores = (
+                    similarity_df[matched_name]
+                    .drop(matched_name)
+                    .sort_values(ascending=False)
+                    .head(5)
+                )
                 score_df = scores.reset_index()
                 score_df.columns = ["Product", "Cosine Similarity"]
                 score_df["Cosine Similarity"] = score_df["Cosine Similarity"].round(4)
                 score_df.index = score_df.index + 1
                 st.dataframe(score_df, use_container_width=True)
-
-    elif get_btn and not product_input.strip():
-        st.warning("Please enter a product name first.")
 
 
 # ─── PAGE 2: CUSTOMER SEGMENTATION ─────────────────────────────────────────────
