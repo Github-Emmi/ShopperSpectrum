@@ -671,7 +671,7 @@ def page_segmentation(kmeans, scaler, label_map):
     <div style="background:#FFF8EE; border-radius:8px; padding:1rem; margin-bottom:1.5rem; border-left:4px solid #F39C12; color:rgb(50,150,140);">
     <b>How it works:</b> Enter a customer's <b>RFM</b> (Recency, Frequency, Monetary) metrics.
     The KMeans++ model — trained on real transaction data — will classify the customer into one of
-    four actionable business segments.
+    four actionable business segment.
     </div>
     """, unsafe_allow_html=True)
 
